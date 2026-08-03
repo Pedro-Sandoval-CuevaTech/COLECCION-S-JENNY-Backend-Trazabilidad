@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tela {
+  id                Int      @id @default(autoincrement())
+  proveedor         String
+  metrosIngresados  Decimal
+  metrosDisponibles Decimal
+  fechaIngreso      DateTime @default(now())
+}
+
+enum EstadoLote {
+  CORTE
+  COSTURA
+  ACABADO
+  ALMACEN
+  FINALIZADO
+}
+
+enum TipoLote {
+  STOCK
+  PEDIDO
+}
+
+model Producto {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @unique
+  descripcion String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lotes       Lote[]
+}
+
+model Lote {
+  id                Int           @id @default(autoincrement())
+  codigo            String        @unique
+  productoId        Int
+  metrosTelaUsados  Decimal
+  estado            EstadoLote    @default(CORTE)
+  tipo              TipoLote      @default(STOCK)
+  fechaCreacion     DateTime      @default(now())
+  fechaCostura      DateTime?
+  fechaAcabado      DateTime?
+  fechaAlmacen      DateTime?
+  fechaFinalizacion DateTime?
+  producto          Producto      @relation(fields: [productoId], references: [id])
+  detalles          LoteDetalle[]
+}
+
+model LoteDetalle {
+  id              Int             @id @default(autoincrement())
+  loteId          Int
+  talla           String
+  cantidadInicial Int
+  stockAlmacen    Int             @default(0)
+  lote            Lote            @relation(fields: [loteId], references: [id])
+  loteTiendas     LoteTienda[]
+  transferencias  Transferencia[]
+  ventas          Venta[]
+
+  @@unique([loteId, talla])
+}
+
+model Tienda {
+  id             Int             @id @default(autoincrement())
+  nombre         String          @unique
+  loteTiendas    LoteTienda[]
+  transferencias Transferencia[]
+  ventas         Venta[]
+  usuarios       Usuario[]
+}
+
+model LoteTienda {
+  loteDetalleId Int
+  tiendaId      Int
+  cantidad      Int         @default(0)
+  loteDetalle   LoteDetalle @relation(fields: [loteDetalleId], references: [id])
+  tienda        Tienda      @relation(fields: [tiendaId], references: [id])
+
+  @@id([loteDetalleId, tiendaId])
+}
+
+enum Rol {
+  CORTADOR
+  COSTURA
+  ACABADO
+  ALMACEN
+  VENDEDOR
+}
+
+model Usuario {
+  telefono String  @id
+  rol      Rol
+  tiendaId Int?
+  tienda   Tienda? @relation(fields: [tiendaId], references: [id])
+}
+
+model Transferencia {
+  id            Int         @id @default(autoincrement())
+  loteDetalleId Int
+  tiendaId      Int
+  cantidad      Int
+  fecha         DateTime    @default(now())
+  loteDetalle   LoteDetalle @relation(fields: [loteDetalleId], references: [id])
+  tienda        Tienda      @relation(fields: [tiendaId], references: [id])
+}
+
+model Venta {
+  id            Int         @id @default(autoincrement())
+  loteDetalleId Int
+  tiendaId      Int
+  cantidad      Int
+  fecha         DateTime    @default(now())
+  loteDetalle   LoteDetalle @relation(fields: [loteDetalleId], references: [id])
+  tienda        Tienda      @relation(fields: [tiendaId], references: [id])
+}

@@ -1,0 +1,31 @@
+import express from 'express';
+import tiendasRouter from './routes/tiendas';
+import telaRouter from './routes/tela';
+import lotesRouter from './routes/lotes';
+import productosRouter from './routes/productos';
+import reportesRouter from './routes/reportes';
+import { errorHandler } from './middleware/errorHandler';
+
+const app = express();
+app.use(express.json());
+
+app.get('/health', (_req, res) => {
+  res.json({ error: false, data: { status: 'ok' } });
+});
+
+app.use('/api/tiendas', tiendasRouter);
+app.use('/api/productos', productosRouter);
+app.use('/api/tela', telaRouter);
+app.use('/api/lotes', lotesRouter);
+app.use('/api/reportes', reportesRouter);
+
+app.use((_req, res) => {
+  res.status(404).json({ error: true, mensaje: 'Ruta no encontrada' });
+});
+
+app.use(errorHandler);
+
+const port = Number(process.env.PORT ?? 3000);
+app.listen(port, () => {
+  console.log(`API listening on :${port}`);
+});

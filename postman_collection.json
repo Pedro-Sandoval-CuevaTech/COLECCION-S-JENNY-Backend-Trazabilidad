@@ -1,0 +1,320 @@
+{
+  "info": {
+    "name": "COLECCION'S JENNY — Backend Trazabilidad",
+    "description": "MVP de trazabilidad textil. Todas las respuestas siguen el formato { error: boolean, data | mensaje }. La identidad se resuelve por el campo `telefono` contra la tabla Usuario. Los teléfonos TEST-* provienen del seed.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000", "type": "string" },
+    { "key": "codigo", "value": "LOTE-2026-0001", "type": "string", "description": "Código de lote a consultar/operar" },
+    { "key": "telefonoAlmacen", "value": "TEST-ALMACEN-001", "type": "string" },
+    { "key": "telefonoCortador", "value": "TEST-CORTADOR-001", "type": "string" },
+    { "key": "telefonoCostura", "value": "TEST-COSTURA-001", "type": "string" },
+    { "key": "telefonoAcabado", "value": "TEST-ACABADO-001", "type": "string" },
+    { "key": "telefonoVendedor", "value": "TEST-VENDEDOR-001", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Setup",
+      "item": [
+        {
+          "name": "Healthcheck",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Verifica que el servidor está arriba."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Catálogo",
+      "item": [
+        {
+          "name": "Listar tiendas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tiendas",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tiendas"]
+            },
+            "description": "Catálogo de tiendas físicas."
+          }
+        },
+        {
+          "name": "Listar productos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/productos",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "productos"]
+            },
+            "description": "Modelos que fabrica la empresa. n8n/IA debe extraer nombres de esta lista para el campo `producto` de crear lote."
+          }
+        },
+        {
+          "name": "Stock por tienda (todas)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tiendas/stock",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tiendas", "stock"]
+            },
+            "description": "Devuelve el inventario actual de cada tienda, agrupado por lote y talla. Solo incluye filas con cantidad > 0 dentro de cada tienda; las tiendas sin stock aparecen con lotes: []. Incluye un totalUnidades por tienda para lectura rápida."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tela",
+      "item": [
+        {
+          "name": "Ingresar tela (ALMACEN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telefono\": \"{{telefonoAlmacen}}\",\n  \"proveedor\": \"Textiles ABC\",\n  \"metros\": 200\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tela/ingresos",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tela", "ingresos"]
+            },
+            "description": "Registra un ingreso de rollos/metros de tela al almacén. Solo rol ALMACEN. Los metros ingresan como disponibles y se consumen FIFO al crear lotes."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Lotes",
+      "item": [
+        {
+          "name": "Crear lote multi-talla (CORTADOR)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telefono\": \"{{telefonoCortador}}\",\n  \"producto\": \"Vestido Escolar\",\n  \"metrosTela\": 80,\n  \"tipo\": \"STOCK\",\n  \"tallas\": [\n    { \"talla\": \"T1\", \"cantidad\": 10 },\n    { \"talla\": \"T2\", \"cantidad\": 15 },\n    { \"talla\": \"T3\", \"cantidad\": 20 }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/lotes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lotes"]
+            },
+            "description": "Crea un lote con múltiples tallas. Consume tela FIFO. Estado inicial CORTE. Campo `tipo` opcional (STOCK default | PEDIDO). El código se autogenera: LOTE-YYYY-NNNN.\n\nErrores: producto no existe (404), tela insuficiente (400), tallas duplicadas (400)."
+          }
+        },
+        {
+          "name": "Listar lotes (con filtros opcionales)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/lotes?estado=ALMACEN&tipo=STOCK",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lotes"],
+              "query": [
+                { "key": "estado", "value": "ALMACEN", "description": "CORTE | COSTURA | ACABADO | ALMACEN | FINALIZADO", "disabled": false },
+                { "key": "tipo", "value": "STOCK", "description": "STOCK | PEDIDO", "disabled": false }
+              ]
+            },
+            "description": "Lista lotes ordenados por fechaCreacion desc. Ambos filtros son opcionales — desactiva cualquiera para no filtrar por ese campo. Devuelve versión resumida (sin transferencias/ventas); usa GET /api/lotes/:codigo para trazabilidad completa."
+          }
+        },
+        {
+          "name": "Consultar lote (trazabilidad completa)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/lotes/{{codigo}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lotes", "{{codigo}}"]
+            },
+            "description": "Devuelve el lote con todo su historial agrupado por talla: stockAlmacen actual, stocks en cada tienda, transferencias y ventas. Este es el endpoint clave para la trazabilidad end-to-end de la sustentación."
+          }
+        },
+        {
+          "name": "Avanzar estado (CORTADOR: CORTE→COSTURA)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telefono\": \"{{telefonoCortador}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/lotes/{{codigo}}/avance",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lotes", "{{codigo}}", "avance"]
+            },
+            "description": "El rol determina la transición: CORTADOR: CORTE→COSTURA, COSTURA: COSTURA→ACABADO, ACABADO: ACABADO→ALMACEN. Al entrar a ALMACEN, se inicializa stockAlmacen = cantidadInicial en cada talla."
+          }
+        },
+        {
+          "name": "Avanzar estado (COSTURA: COSTURA→ACABADO)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telefono\": \"{{telefonoCostura}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/lotes/{{codigo}}/avance",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lotes", "{{codigo}}", "avance"]
+            }
+          }
+        },
+        {
+          "name": "Avanzar estado (ACABADO: ACABADO→ALMACEN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telefono\": \"{{telefonoAcabado}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/lotes/{{codigo}}/avance",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lotes", "{{codigo}}", "avance"]
+            }
+          }
+        },
+        {
+          "name": "Transferir a tienda (ALMACEN, por talla)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telefono\": \"{{telefonoAlmacen}}\",\n  \"tienda\": \"Tienda Centro\",\n  \"talla\": \"T2\",\n  \"cantidad\": 5\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/lotes/{{codigo}}/transferencias",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lotes", "{{codigo}}", "transferencias"]
+            },
+            "description": "Mueve stock de una talla específica desde almacén a una tienda. Requiere lote en estado ALMACEN. Una llamada = una talla; para varias tallas, llama N veces."
+          }
+        },
+        {
+          "name": "Vender (VENDEDOR, por talla)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telefono\": \"{{telefonoVendedor}}\",\n  \"talla\": \"T2\",\n  \"cantidad\": 2\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/lotes/{{codigo}}/ventas",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lotes", "{{codigo}}", "ventas"]
+            },
+            "description": "Registra una venta. La tienda es la del vendedor (no viene en el body). Si el lote es tipo STOCK y todas las tallas quedan en 0 tras la venta, se marca automáticamente como FINALIZADO."
+          }
+        },
+        {
+          "name": "Finalizar manual (ALMACEN, solo PEDIDO)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"telefono\": \"{{telefonoAlmacen}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/lotes/{{codigo}}/finalizar",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lotes", "{{codigo}}", "finalizar"]
+            },
+            "description": "Finalización manual — solo permitida para lotes de tipo PEDIDO que no estén ya FINALIZADO. Los lotes STOCK se finalizan automáticamente al llegar el stock total a 0."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reportes",
+      "item": [
+        {
+          "name": "Producción por período",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reportes/produccion?desde=2026-01-01&hasta=2026-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reportes", "produccion"],
+              "query": [
+                { "key": "desde", "value": "2026-01-01", "description": "ISO 8601 (YYYY-MM-DD o full). Opcional; sin filtro = todo tiempo.", "disabled": false },
+                { "key": "hasta", "value": "2026-12-31", "description": "ISO 8601. Opcional.", "disabled": false }
+              ]
+            },
+            "description": "Resumen de producción del período: lotes creados/finalizados, unidades totales, metros de tela consumidos, desglose por producto (ordenado por unidades desc). Filtra por fechaCreacion para creados y fechaFinalizacion para finalizados."
+          }
+        },
+        {
+          "name": "Movimientos por período",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reportes/movimientos?desde=2026-01-01&hasta=2026-12-31&tienda=&producto=",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reportes", "movimientos"],
+              "query": [
+                { "key": "desde", "value": "2026-01-01", "description": "ISO 8601. Opcional.", "disabled": false },
+                { "key": "hasta", "value": "2026-12-31", "description": "ISO 8601. Opcional.", "disabled": false },
+                { "key": "tienda", "value": "", "description": "Nombre exacto (ej: 'Tienda Centro'). Opcional.", "disabled": true },
+                { "key": "producto", "value": "", "description": "Nombre exacto (ej: 'Vestido Escolar'). Opcional.", "disabled": true }
+              ]
+            },
+            "description": "Transferencias y ventas del período. Totales por tienda y por producto. Filtros opcionales: `tienda` y `producto` (por nombre). Útil para 'trazabilidad' + 'reducción de errores' de la tesis."
+          }
+        },
+        {
+          "name": "Ciclo de vida de lotes finalizados",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reportes/ciclo-lotes?desde=2026-01-01&hasta=2026-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reportes", "ciclo-lotes"],
+              "query": [
+                { "key": "desde", "value": "2026-01-01", "description": "ISO 8601. Opcional. Filtra por fechaFinalizacion.", "disabled": false },
+                { "key": "hasta", "value": "2026-12-31", "description": "ISO 8601. Opcional.", "disabled": false }
+              ]
+            },
+            "description": "Solo lotes FINALIZADO. Reporta tiempo total (fechaCreacion→fechaFinalizacion) y desglose por fase (corteMinutos, costuraMinutos, acabadoMinutos, almacenMinutos). Estadísticas: promedio, mediana, min, max. Métrica clave para el KPI 'reducción de tiempos de registro' vs proceso manual. Los tiempos están en MINUTOS."
+          }
+        }
+      ]
+    }
+  ]
+}

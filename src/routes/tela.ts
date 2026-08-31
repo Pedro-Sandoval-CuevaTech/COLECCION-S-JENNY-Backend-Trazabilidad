@@ -5,7 +5,8 @@ const router = Router();
 
 router.post('/ingresos', async (req, res) => {
   const data = await ingresarTela(req.body);
-  res.status(201).json({ error: false, data });
+  const message = `Se ingresaron ${data.metrosIngresados} metros de tela del proveedor "${data.proveedor}". Disponibles: ${data.metrosDisponibles} metros.`;
+  res.status(201).json({ error: false, message, data });
 });
 
 export default router;

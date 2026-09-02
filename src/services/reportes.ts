@@ -1,6 +1,7 @@
 import { EstadoLote } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { parseFechaOpcional, requireString } from '../lib/validators';
+import { normalizarNombreProducto } from './productos';
 
 type DateRange = { gte?: Date; lte?: Date };
 
@@ -73,12 +74,14 @@ export async function reporteMovimientos(input: unknown) {
   const { desde, hasta, query } = parseRango(input);
   const rango = buildDateRange(desde, hasta);
   const tienda = query.tienda === undefined ? undefined : requireString(query.tienda, 'tienda');
-  const producto = query.producto === undefined ? undefined : requireString(query.producto, 'producto');
+  const producto = query.producto === undefined ? undefined : normalizarNombreProducto(query.producto);
 
   const where = {
     fecha: rango,
-    ...(tienda && { tienda: { nombre: tienda } }),
-    ...(producto && { loteDetalle: { lote: { producto: { nombre: producto } } } }),
+    ...(tienda && { tienda: { nombre: { equals: tienda, mode: 'insensitive' as const } } }),
+    ...(producto && {
+      loteDetalle: { lote: { producto: { nombre: { equals: producto, mode: 'insensitive' as const } } } },
+    }),
   };
 
   const [transferencias, ventas] = await Promise.all([

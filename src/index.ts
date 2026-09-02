@@ -7,7 +7,6 @@ import productosRouter from './routes/productos';
 import reportesRouter from './routes/reportes';
 import authorizedPhonesRouter from './routes/authorizedPhones';
 import { errorHandler } from './middleware/errorHandler';
-import { accessControl } from './middleware/accessControl';
 import { openapiSpec } from './openapi';
 
 const app = express();
@@ -19,8 +18,6 @@ app.get('/health', (_req, res) => {
 
 app.get('/openapi.json', (_req, res) => res.json(openapiSpec));
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(openapiSpec));
-
-app.use('/api', accessControl);
 
 app.use('/api/tiendas', tiendasRouter);
 app.use('/api/productos', productosRouter);

@@ -1,7 +1,13 @@
 import { Router } from 'express';
-import { ingresarTela } from '../services/tela';
+import { ingresarTela, stockTela } from '../services/tela';
 
 const router = Router();
+
+router.get('/stock', async (_req, res) => {
+  const data = await stockTela();
+  const message = `Hay ${data.metrosDisponibles} metros de tela disponibles.`;
+  res.json({ error: false, message, data });
+});
 
 router.post('/ingresos', async (req, res) => {
   const data = await ingresarTela(req.body);

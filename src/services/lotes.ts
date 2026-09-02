@@ -1,4 +1,4 @@
-import { EstadoLote, Prisma, Rol, TipoLote } from '@prisma/client';
+import { EstadoLote, Prisma, TipoLote } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { BusinessError } from '../errors';
 import {
@@ -6,24 +6,27 @@ import {
   requirePositiveNumber,
   requireString,
   requireTallasArray,
-  requireUsuarioConRol,
 } from '../lib/validators';
+import { buscarProductoPorNombre, normalizarNombreProducto } from './productos';
+import { buscarTiendaPorNombre } from './tiendas';
 
-const AVANCES: Partial<Record<Rol, { from: EstadoLote; to: EstadoLote }>> = {
-  [Rol.CORTADOR]: { from: EstadoLote.CORTE, to: EstadoLote.COSTURA },
-  [Rol.COSTURA]: { from: EstadoLote.COSTURA, to: EstadoLote.ACABADO },
-  [Rol.ACABADO]: { from: EstadoLote.ACABADO, to: EstadoLote.ALMACEN },
+const SIGUIENTE_ESTADO: Partial<Record<EstadoLote, EstadoLote>> = {
+  [EstadoLote.CORTE]: EstadoLote.COSTURA,
+  [EstadoLote.COSTURA]: EstadoLote.ACABADO,
+  [EstadoLote.ACABADO]: EstadoLote.ALMACEN,
 };
 
 function parseTipo(v: unknown): TipoLote {
-  if (v === TipoLote.STOCK || v === TipoLote.PEDIDO) return v;
+  const upper = typeof v === 'string' ? v.toUpperCase() : v;
+  if (upper === TipoLote.STOCK || upper === TipoLote.PEDIDO) return upper;
   throw new BusinessError(400, 'tipo debe ser "STOCK" o "PEDIDO"');
 }
 
 function parseEstado(v: unknown): EstadoLote {
   const values = Object.values(EstadoLote);
-  if (typeof v === 'string' && (values as string[]).includes(v)) {
-    return v as EstadoLote;
+  const upper = typeof v === 'string' ? v.toUpperCase() : v;
+  if (typeof upper === 'string' && (values as string[]).includes(upper)) {
+    return upper as EstadoLote;
   }
   throw new BusinessError(400, `estado inválido; debe ser uno de ${values.join(', ')}`);
 }
@@ -39,16 +42,18 @@ async function generarCodigo(tx: Prisma.TransactionClient): Promise<string> {
 
 export async function crearLote(input: unknown) {
   const body = (input ?? {}) as Record<string, unknown>;
-  await requireUsuarioConRol(body.telefono, Rol.CORTADOR);
-  const nombreProducto = requireString(body.producto, 'producto');
+  const nombreProducto = normalizarNombreProducto(body.producto);
   const metrosTela = requirePositiveNumber(body.metrosTela, 'metrosTela');
   const tallas = requireTallasArray(body.tallas);
   const tipo = body.tipo === undefined ? TipoLote.STOCK : parseTipo(body.tipo);
 
   return prisma.$transaction(async (tx) => {
-    const producto = await tx.producto.findUnique({ where: { nombre: nombreProducto } });
+    const producto = await buscarProductoPorNombre(nombreProducto, tx);
     if (!producto) {
-      throw new BusinessError(404, `Producto "${nombreProducto}" no existe`);
+      throw new BusinessError(
+        404,
+        `El producto "${nombreProducto}" no está registrado. Antes de crear un lote, el producto debe existir en el catálogo — usa "Ver productos" para ver los disponibles.`
+      );
     }
 
     const telas = await tx.tela.findMany({
@@ -93,48 +98,44 @@ export async function crearLote(input: unknown) {
   });
 }
 
-export async function avanzarLote(codigo: string, input: unknown) {
-  const body = (input ?? {}) as Record<string, unknown>;
-  const telefono = requireString(body.telefono, 'telefono');
-
+export async function avanzarLote(codigo: string) {
   return prisma.$transaction(async (tx) => {
-    const usuario = await tx.usuario.findUnique({ where: { telefono } });
-    if (!usuario) throw new BusinessError(404, `Usuario con teléfono ${telefono} no existe`);
-
-    const transicion = AVANCES[usuario.rol];
-    if (!transicion) {
-      throw new BusinessError(
-        400,
-        `Rol ${usuario.rol} no realiza avances de producción. Use los endpoints de transferencia o venta si corresponde.`
-      );
-    }
-
     const lote = await tx.lote.findUnique({ where: { codigo } });
-    if (!lote) throw new BusinessError(404, `Lote ${codigo} no existe`);
-
-    if (lote.estado !== transicion.from) {
+    if (!lote) {
       throw new BusinessError(
-        400,
-        `El lote ${codigo} está en estado ${lote.estado}; el rol ${usuario.rol} solo avanza desde ${transicion.from}`
+        404,
+        `No encontré ningún lote con el código "${codigo}". Revisa que esté bien escrito (formato LOTE-AAAA-NNNN) o usa "Ver lotes" para ver los códigos existentes.`
       );
     }
 
-    if (transicion.to === EstadoLote.ALMACEN) {
+    const siguiente = SIGUIENTE_ESTADO[lote.estado];
+    if (!siguiente) {
+      const sugerencia =
+        lote.estado === EstadoLote.ALMACEN
+          ? ' Ya está en ALMACEN — la siguiente acción es "Transferir a tienda" o "Registrar venta", no un avance de estado.'
+          : '';
+      throw new BusinessError(
+        400,
+        `El lote ${codigo} ya está en estado ${lote.estado} y no tiene un siguiente avance automático.${sugerencia}`
+      );
+    }
+
+    if (siguiente === EstadoLote.ALMACEN) {
       // Inicializa stockAlmacen por talla al valor producido
       await tx.$executeRaw`UPDATE "LoteDetalle" SET "stockAlmacen" = "cantidadInicial" WHERE "loteId" = ${lote.id}`;
     }
 
     const now = new Date();
     const timestampUpdate =
-      transicion.to === EstadoLote.COSTURA
+      siguiente === EstadoLote.COSTURA
         ? { fechaCostura: now }
-        : transicion.to === EstadoLote.ACABADO
+        : siguiente === EstadoLote.ACABADO
           ? { fechaAcabado: now }
           : { fechaAlmacen: now };
 
     return tx.lote.update({
       where: { id: lote.id },
-      data: { estado: transicion.to, ...timestampUpdate },
+      data: { estado: siguiente, ...timestampUpdate },
       include: { detalles: true },
     });
   });
@@ -147,13 +148,21 @@ export async function transferirLote(codigo: string, input: unknown) {
   const cantidad = requirePositiveInt(body.cantidad, 'cantidad');
 
   return prisma.$transaction(async (tx) => {
-    await requireUsuarioConRol(body.telefono, Rol.ALMACEN, tx);
-
-    const tienda = await tx.tienda.findUnique({ where: { nombre: nombreTienda } });
-    if (!tienda) throw new BusinessError(404, `Tienda "${nombreTienda}" no existe`);
+    const tienda = await buscarTiendaPorNombre(nombreTienda, tx);
+    if (!tienda) {
+      throw new BusinessError(
+        404,
+        `La tienda "${nombreTienda}" no está registrada. Usa "Ver tiendas" para ver las tiendas disponibles.`
+      );
+    }
 
     const lote = await tx.lote.findUnique({ where: { codigo } });
-    if (!lote) throw new BusinessError(404, `Lote ${codigo} no existe`);
+    if (!lote) {
+      throw new BusinessError(
+        404,
+        `No encontré ningún lote con el código "${codigo}". Revisa que esté bien escrito (formato LOTE-AAAA-NNNN) o usa "Ver lotes" para ver los códigos existentes.`
+      );
+    }
     if (lote.estado !== EstadoLote.ALMACEN) {
       throw new BusinessError(
         400,
@@ -165,7 +174,10 @@ export async function transferirLote(codigo: string, input: unknown) {
       where: { loteId_talla: { loteId: lote.id, talla } },
     });
     if (!detalle) {
-      throw new BusinessError(404, `El lote ${codigo} no tiene la talla "${talla}"`);
+      throw new BusinessError(
+        404,
+        `El lote ${codigo} no tiene registrada la talla "${talla}". Usa "Detalle de un lote" para ver qué tallas tiene.`
+      );
     }
     if (detalle.stockAlmacen < cantidad) {
       throw new BusinessError(
@@ -193,28 +205,40 @@ export async function transferirLote(codigo: string, input: unknown) {
 
 export async function venderLote(codigo: string, input: unknown) {
   const body = (input ?? {}) as Record<string, unknown>;
+  const nombreTienda = requireString(body.tienda, 'tienda');
   const talla = requireString(body.talla, 'talla');
   const cantidad = requirePositiveInt(body.cantidad, 'cantidad');
 
   return prisma.$transaction(async (tx) => {
-    const usuario = await requireUsuarioConRol(body.telefono, Rol.VENDEDOR, tx);
-    if (usuario.tiendaId == null) {
-      throw new BusinessError(400, `El vendedor ${usuario.telefono} no tiene tienda asignada`);
+    const tienda = await buscarTiendaPorNombre(nombreTienda, tx);
+    if (!tienda) {
+      throw new BusinessError(
+        404,
+        `La tienda "${nombreTienda}" no está registrada. Usa "Ver tiendas" para ver las tiendas disponibles.`
+      );
     }
 
     const lote = await tx.lote.findUnique({ where: { codigo } });
-    if (!lote) throw new BusinessError(404, `Lote ${codigo} no existe`);
+    if (!lote) {
+      throw new BusinessError(
+        404,
+        `No encontré ningún lote con el código "${codigo}". Revisa que esté bien escrito (formato LOTE-AAAA-NNNN) o usa "Ver lotes" para ver los códigos existentes.`
+      );
+    }
 
     const detalle = await tx.loteDetalle.findUnique({
       where: { loteId_talla: { loteId: lote.id, talla } },
     });
     if (!detalle) {
-      throw new BusinessError(404, `El lote ${codigo} no tiene la talla "${talla}"`);
+      throw new BusinessError(
+        404,
+        `El lote ${codigo} no tiene registrada la talla "${talla}". Usa "Detalle de un lote" para ver qué tallas tiene.`
+      );
     }
 
     const stockTienda = await tx.loteTienda.findUnique({
       where: {
-        loteDetalleId_tiendaId: { loteDetalleId: detalle.id, tiendaId: usuario.tiendaId },
+        loteDetalleId_tiendaId: { loteDetalleId: detalle.id, tiendaId: tienda.id },
       },
     });
     if (!stockTienda || stockTienda.cantidad < cantidad) {
@@ -226,13 +250,13 @@ export async function venderLote(codigo: string, input: unknown) {
 
     await tx.loteTienda.update({
       where: {
-        loteDetalleId_tiendaId: { loteDetalleId: detalle.id, tiendaId: usuario.tiendaId },
+        loteDetalleId_tiendaId: { loteDetalleId: detalle.id, tiendaId: tienda.id },
       },
       data: { cantidad: { decrement: cantidad } },
     });
 
     const venta = await tx.venta.create({
-      data: { loteDetalleId: detalle.id, tiendaId: usuario.tiendaId, cantidad },
+      data: { loteDetalleId: detalle.id, tiendaId: tienda.id, cantidad },
     });
 
     // Auto-finalización solo para STOCK cuando el lote (todas sus tallas) queda en 0
@@ -260,13 +284,15 @@ export async function venderLote(codigo: string, input: unknown) {
   });
 }
 
-export async function finalizarLote(codigo: string, input: unknown) {
-  const body = (input ?? {}) as Record<string, unknown>;
-
+export async function finalizarLote(codigo: string) {
   return prisma.$transaction(async (tx) => {
-    await requireUsuarioConRol(body.telefono, Rol.ALMACEN, tx);
     const lote = await tx.lote.findUnique({ where: { codigo } });
-    if (!lote) throw new BusinessError(404, `Lote ${codigo} no existe`);
+    if (!lote) {
+      throw new BusinessError(
+        404,
+        `No encontré ningún lote con el código "${codigo}". Revisa que esté bien escrito (formato LOTE-AAAA-NNNN) o usa "Ver lotes" para ver los códigos existentes.`
+      );
+    }
     if (lote.tipo !== TipoLote.PEDIDO) {
       throw new BusinessError(
         400,

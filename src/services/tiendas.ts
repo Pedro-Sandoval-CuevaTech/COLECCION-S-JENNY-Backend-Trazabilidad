@@ -1,4 +1,13 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
+
+type Tx = Prisma.TransactionClient | typeof prisma;
+
+// Las tiendas son un catalogo fijo (no se crean desde el chat), asi que no hace falta
+// normalizar el nombre guardado — solo que la busqueda ignore mayusculas/minusculas.
+export async function buscarTiendaPorNombre(nombre: string, tx: Tx = prisma) {
+  return tx.tienda.findFirst({ where: { nombre: { equals: nombre, mode: 'insensitive' } } });
+}
 
 export async function listarTiendas() {
   return prisma.tienda.findMany({ orderBy: { id: 'asc' } });

@@ -132,6 +132,69 @@ export const openapiSpec = {
           },
         },
       },
+      post: {
+        tags: ['Productos'],
+        summary: 'Crear producto',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CrearProductoInput' },
+              example: { nombre: 'Vestido Niña', descripcion: 'Vestido escolar talla infantil' },
+            },
+          },
+        },
+        responses: {
+          '201': {
+            description: 'Producto creado',
+            content: {
+              'application/json': {
+                schema: {
+                  allOf: [
+                    { $ref: '#/components/schemas/Envelope' },
+                    {
+                      type: 'object',
+                      properties: { data: { $ref: '#/components/schemas/Producto' } },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          '400': { $ref: '#/components/responses/BusinessError' },
+          '409': { $ref: '#/components/responses/BusinessError' },
+        },
+      },
+    },
+
+    '/api/tela/stock': {
+      get: {
+        tags: ['Tela'],
+        summary: 'Metros de tela disponibles (suma total)',
+        responses: {
+          '200': {
+            description: 'Total disponible',
+            content: {
+              'application/json': {
+                schema: {
+                  allOf: [
+                    { $ref: '#/components/schemas/Envelope' },
+                    {
+                      type: 'object',
+                      properties: {
+                        data: {
+                          type: 'object',
+                          properties: { metrosDisponibles: { type: 'number' } },
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
     },
 
     '/api/tela/ingresos': {
@@ -666,6 +729,25 @@ export const openapiSpec = {
           descripcion: { type: 'string', nullable: true },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+
+      CrearProductoInput: {
+        type: 'object',
+        required: ['nombre'],
+        description:
+          '"nombre" puede ser: un string sin comas (crea un solo producto, 409 si ya existe), ' +
+          'un string con comas (crea varios, una coma por nombre), o un arreglo de strings ' +
+          '(igual que el string con comas). En los dos casos de "varios" nunca falla por ' +
+          'duplicados — cada nombre reporta si se creó o si ya existía en "data". Todos los ' +
+          'nombres se guardan tal cual se enviaron, pero la comparación para detectar ' +
+          'duplicados y para buscarlos despues (ej. al crear un lote) ignora mayúsculas/' +
+          'minúsculas.',
+        properties: {
+          nombre: {
+            oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+          },
+          descripcion: { type: 'string', nullable: true, description: 'Solo aplica para creación individual.' },
         },
       },
 

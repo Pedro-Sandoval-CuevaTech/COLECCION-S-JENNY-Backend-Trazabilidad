@@ -29,6 +29,17 @@ async function main() {
     )
   );
 
+  const nombresTiposTela = ['Algodón Blanco', 'Poliéster Negro', 'Denim Azul'];
+  const tiposTela = await Promise.all(
+    nombresTiposTela.map((nombre) =>
+      prisma.tipoTela.upsert({
+        where: { nombre },
+        update: {},
+        create: { nombre },
+      })
+    )
+  );
+
   const tiendaVendedor = tiendas[0];
   const usuarios: { telefono: string; rol: Rol; tiendaId: number | null }[] = [
     { telefono: 'TEST-CORTADOR-001', rol: Rol.CORTADOR, tiendaId: null },
@@ -47,7 +58,7 @@ async function main() {
   }
 
   console.log(
-    `Seed OK: ${tiendas.length} tiendas, ${productos.length} productos, ${usuarios.length} usuarios`
+    `Seed OK: ${tiendas.length} tiendas, ${productos.length} productos, ${tiposTela.length} tipos de tela, ${usuarios.length} usuarios`
   );
 }
 

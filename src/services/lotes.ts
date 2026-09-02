@@ -9,6 +9,7 @@ import {
 } from '../lib/validators';
 import { buscarProductoPorNombre, normalizarNombreProducto } from './productos';
 import { buscarTiendaPorNombre } from './tiendas';
+import { buscarTipoTelaPorNombre, normalizarNombreTipoTela } from './tiposTela';
 
 const SIGUIENTE_ESTADO: Partial<Record<EstadoLote, EstadoLote>> = {
   [EstadoLote.CORTE]: EstadoLote.COSTURA,
@@ -43,6 +44,7 @@ async function generarCodigo(tx: Prisma.TransactionClient): Promise<string> {
 export async function crearLote(input: unknown) {
   const body = (input ?? {}) as Record<string, unknown>;
   const nombreProducto = normalizarNombreProducto(body.producto);
+  const nombreTipoTela = normalizarNombreTipoTela(body.tipoTela);
   const metrosTela = requirePositiveNumber(body.metrosTela, 'metrosTela');
   const tallas = requireTallasArray(body.tallas);
   const tipo = body.tipo === undefined ? TipoLote.STOCK : parseTipo(body.tipo);
@@ -56,11 +58,22 @@ export async function crearLote(input: unknown) {
       );
     }
 
+    const tipoTela = await buscarTipoTelaPorNombre(nombreTipoTela, tx);
+    if (!tipoTela) {
+      throw new BusinessError(
+        404,
+        `El tipo de tela "${nombreTipoTela}" no está registrado. Usa "Ver tipos de tela" para ver los disponibles.`
+      );
+    }
+
+    // FIFO, pero solo dentro del tipo de tela pedido — nunca se descuenta tela de otro
+    // tipo aunque haya disponible, para que quede explícito de qué tela sale cada lote.
     const telas = await tx.tela.findMany({
-      where: { metrosDisponibles: { gt: 0 } },
+      where: { tipoTelaId: tipoTela.id, metrosDisponibles: { gt: 0 } },
       orderBy: { fechaIngreso: 'asc' },
     });
     let restante = metrosTela;
+    const consumos: { telaId: number; metros: number }[] = [];
     for (const tela of telas) {
       if (restante <= 0) break;
       const disponible = Number(tela.metrosDisponibles);
@@ -69,20 +82,22 @@ export async function crearLote(input: unknown) {
         where: { id: tela.id },
         data: { metrosDisponibles: { decrement: usar } },
       });
+      consumos.push({ telaId: tela.id, metros: usar });
       restante -= usar;
     }
     if (restante > 0.0000001) {
       throw new BusinessError(
         400,
-        `No hay suficiente tela disponible: faltan ${restante.toFixed(2)} metros para cubrir ${metrosTela}`
+        `No hay suficiente tela "${tipoTela.nombre}" disponible: faltan ${restante.toFixed(2)} metros para cubrir ${metrosTela}`
       );
     }
 
     const codigo = await generarCodigo(tx);
-    return tx.lote.create({
+    const lote = await tx.lote.create({
       data: {
         codigo,
         productoId: producto.id,
+        tipoTelaId: tipoTela.id,
         metrosTelaUsados: metrosTela,
         estado: EstadoLote.CORTE,
         tipo,
@@ -93,8 +108,14 @@ export async function crearLote(input: unknown) {
           })),
         },
       },
-      include: { detalles: true, producto: true },
+      include: { detalles: true, producto: true, tipoTela: true },
     });
+
+    await tx.loteTela.createMany({
+      data: consumos.map((c) => ({ loteId: lote.id, telaId: c.telaId, metros: c.metros })),
+    });
+
+    return lote;
   });
 }
 
@@ -319,6 +340,7 @@ export async function listarLotes(input: unknown) {
     orderBy: { fechaCreacion: 'desc' },
     include: {
       producto: { select: { nombre: true } },
+      tipoTela: { select: { nombre: true } },
       detalles: { select: { cantidadInicial: true } },
     },
   });
@@ -326,6 +348,7 @@ export async function listarLotes(input: unknown) {
   return lotes.map((l) => ({
     codigo: l.codigo,
     producto: l.producto.nombre,
+    tipoTela: l.tipoTela.nombre,
     estado: l.estado,
     tipo: l.tipo,
     unidadesTotales: l.detalles.reduce((s, d) => s + d.cantidadInicial, 0),
@@ -339,6 +362,8 @@ export async function obtenerLote(codigo: string) {
     where: { codigo },
     include: {
       producto: true,
+      tipoTela: true,
+      consumosTela: { include: { tela: true }, orderBy: { id: 'asc' } },
       detalles: {
         orderBy: { talla: 'asc' },
         include: {
@@ -349,7 +374,12 @@ export async function obtenerLote(codigo: string) {
       },
     },
   });
-  if (!lote) throw new BusinessError(404, `Lote ${codigo} no existe`);
+  if (!lote) {
+    throw new BusinessError(
+      404,
+      `No encontré ningún lote con el código "${codigo}". Revisa que esté bien escrito (formato LOTE-AAAA-NNNN) o usa "Ver lotes" para ver los códigos existentes.`
+    );
+  }
 
   return {
     codigo: lote.codigo,
@@ -357,6 +387,13 @@ export async function obtenerLote(codigo: string) {
     estado: lote.estado,
     tipo: lote.tipo,
     metrosTelaUsados: lote.metrosTelaUsados,
+    tipoTela: lote.tipoTela.nombre,
+    origenTela: lote.consumosTela.map((c) => ({
+      telaId: c.telaId,
+      proveedor: c.tela.proveedor,
+      fechaIngreso: c.tela.fechaIngreso,
+      metrosUsados: c.metros,
+    })),
     fechaCreacion: lote.fechaCreacion,
     fechaFinalizacion: lote.fechaFinalizacion,
     detalleTallas: lote.detalles.map((d) => ({

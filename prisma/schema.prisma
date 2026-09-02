@@ -16,12 +16,23 @@ model AuthorizedPhone {
   updatedAt              DateTime  @updatedAt
 }
 
+model TipoTela {
+  id        Int      @id @default(autoincrement())
+  nombre    String   @unique
+  createdAt DateTime @default(now())
+  telas     Tela[]
+  lotes     Lote[]
+}
+
 model Tela {
-  id                Int      @id @default(autoincrement())
+  id                Int        @id @default(autoincrement())
+  tipoTelaId        Int
   proveedor         String
   metrosIngresados  Decimal
   metrosDisponibles Decimal
-  fechaIngreso      DateTime @default(now())
+  fechaIngreso      DateTime   @default(now())
+  tipoTela          TipoTela   @relation(fields: [tipoTelaId], references: [id])
+  consumos          LoteTela[]
 }
 
 enum EstadoLote {
@@ -50,6 +61,7 @@ model Lote {
   id                Int           @id @default(autoincrement())
   codigo            String        @unique
   productoId        Int
+  tipoTelaId        Int
   metrosTelaUsados  Decimal
   estado            EstadoLote    @default(CORTE)
   tipo              TipoLote      @default(STOCK)
@@ -59,7 +71,21 @@ model Lote {
   fechaAlmacen      DateTime?
   fechaFinalizacion DateTime?
   producto          Producto      @relation(fields: [productoId], references: [id])
+  tipoTela          TipoTela      @relation(fields: [tipoTelaId], references: [id])
   detalles          LoteDetalle[]
+  consumosTela      LoteTela[]
+}
+
+// Registro explicito de que lotes de Tela (y cuantos metros de cada uno) se
+// descontaron para producir un Lote — la trazabilidad no queda solo en el numero
+// agregado de Lote.metrosTelaUsados, sino en el detalle de origen por lote de tela.
+model LoteTela {
+  id     Int     @id @default(autoincrement())
+  loteId Int
+  telaId Int
+  metros Decimal
+  lote   Lote    @relation(fields: [loteId], references: [id])
+  tela   Tela    @relation(fields: [telaId], references: [id])
 }
 
 model LoteDetalle {

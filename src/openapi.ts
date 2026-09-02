@@ -170,10 +170,23 @@ export const openapiSpec = {
     '/api/tela/stock': {
       get: {
         tags: ['Tela'],
-        summary: 'Metros de tela disponibles (suma total)',
+        summary: 'Metros de tela disponibles, desglosado por tipo de tela',
+        description:
+          'Sin query param "tipo": devuelve un arreglo con el disponible por cada tipo de ' +
+          'tela que tenga ingresos. Con "tipo": devuelve solo ese tipo (404 si no existe en ' +
+          'el catálogo de TipoTela).',
+        parameters: [
+          {
+            name: 'tipo',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Nombre del tipo de tela (case-insensitive). Filtra a un solo resultado.',
+          },
+        ],
         responses: {
           '200': {
-            description: 'Total disponible',
+            description: 'Disponible por tipo (arreglo) o de un tipo especifico (objeto)',
             content: {
               'application/json': {
                 schema: {
@@ -183,8 +196,10 @@ export const openapiSpec = {
                       type: 'object',
                       properties: {
                         data: {
-                          type: 'object',
-                          properties: { metrosDisponibles: { type: 'number' } },
+                          oneOf: [
+                            { type: 'array', items: { $ref: '#/components/schemas/StockTela' } },
+                            { $ref: '#/components/schemas/StockTela' },
+                          ],
                         },
                       },
                     },
@@ -193,6 +208,7 @@ export const openapiSpec = {
               },
             },
           },
+          '404': { $ref: '#/components/responses/BusinessError' },
         },
       },
     },
@@ -200,16 +216,16 @@ export const openapiSpec = {
     '/api/tela/ingresos': {
       post: {
         tags: ['Tela'],
-        summary: 'Registrar ingreso de tela (rol ALMACEN)',
+        summary: 'Registrar ingreso de tela de un tipo ya existente en el catálogo',
         requestBody: {
           required: true,
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/IngresoTelaInput' },
               example: {
-                telefono: '555-0001',
                 proveedor: 'Textiles ACME',
                 metros: 120.5,
+                tipoTela: 'Algodón Blanco',
               },
             },
           },
@@ -232,8 +248,67 @@ export const openapiSpec = {
             },
           },
           '400': { $ref: '#/components/responses/BusinessError' },
-          '403': { $ref: '#/components/responses/BusinessError' },
           '404': { $ref: '#/components/responses/BusinessError' },
+        },
+      },
+    },
+
+    '/api/tipos-tela': {
+      get: {
+        tags: ['Tela'],
+        summary: 'Listar tipos de tela',
+        responses: {
+          '200': {
+            description: 'Listado de tipos de tela',
+            content: {
+              'application/json': {
+                schema: {
+                  allOf: [
+                    { $ref: '#/components/schemas/Envelope' },
+                    {
+                      type: 'object',
+                      properties: {
+                        data: { type: 'array', items: { $ref: '#/components/schemas/TipoTela' } },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ['Tela'],
+        summary: 'Crear tipo(s) de tela',
+        description:
+          'Mismo patrón que /api/productos: "nombre" como string simple (uno), string con ' +
+          'comas o arreglo de strings (varios de una vez, nunca falla por duplicados).',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CrearTipoTelaInput' },
+              example: { nombre: 'Algodón Blanco' },
+            },
+          },
+        },
+        responses: {
+          '201': {
+            description: 'Tipo(s) de tela creado(s)',
+            content: {
+              'application/json': {
+                schema: {
+                  allOf: [
+                    { $ref: '#/components/schemas/Envelope' },
+                    { type: 'object', properties: { data: { $ref: '#/components/schemas/TipoTela' } } },
+                  ],
+                },
+              },
+            },
+          },
+          '400': { $ref: '#/components/responses/BusinessError' },
+          '409': { $ref: '#/components/responses/BusinessError' },
         },
       },
     },
@@ -241,15 +316,15 @@ export const openapiSpec = {
     '/api/lotes': {
       post: {
         tags: ['Lotes'],
-        summary: 'Crear lote (rol CORTADOR). Descuenta tela FIFO por fechaIngreso.',
+        summary: 'Crear lote. Descuenta tela FIFO por fechaIngreso, solo dentro del tipoTela pedido.',
         requestBody: {
           required: true,
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/CrearLoteInput' },
               example: {
-                telefono: '555-0002',
                 producto: 'Polo básico',
+                tipoTela: 'Algodón Blanco',
                 metrosTela: 30,
                 tipo: 'STOCK',
                 tallas: [
@@ -753,17 +828,40 @@ export const openapiSpec = {
 
       IngresoTelaInput: {
         type: 'object',
-        required: ['telefono', 'proveedor', 'metros'],
+        required: ['proveedor', 'metros', 'tipoTela'],
         properties: {
-          telefono: { type: 'string' },
           proveedor: { type: 'string' },
           metros: { type: 'number', minimum: 0, exclusiveMinimum: true },
+          tipoTela: { type: 'string', description: 'Nombre de un TipoTela ya existente (case-insensitive).' },
+        },
+      },
+      TipoTela: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer' },
+          nombre: { type: 'string' },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      CrearTipoTelaInput: {
+        type: 'object',
+        required: ['nombre'],
+        properties: {
+          nombre: { oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+        },
+      },
+      StockTela: {
+        type: 'object',
+        properties: {
+          tipoTela: { type: 'string' },
+          metrosDisponibles: { type: 'number' },
         },
       },
       Tela: {
         type: 'object',
         properties: {
           id: { type: 'integer' },
+          tipoTelaId: { type: 'integer' },
           proveedor: { type: 'string' },
           metrosIngresados: { type: 'number' },
           metrosDisponibles: { type: 'number' },
@@ -781,10 +879,10 @@ export const openapiSpec = {
       },
       CrearLoteInput: {
         type: 'object',
-        required: ['telefono', 'producto', 'metrosTela', 'tallas'],
+        required: ['producto', 'tipoTela', 'metrosTela', 'tallas'],
         properties: {
-          telefono: { type: 'string' },
           producto: { type: 'string' },
+          tipoTela: { type: 'string', description: 'Nombre de un TipoTela ya existente (case-insensitive). El FIFO solo consume tela de este tipo.' },
           metrosTela: { type: 'number', minimum: 0, exclusiveMinimum: true },
           tipo: { $ref: '#/components/schemas/TipoLote' },
           tallas: {
@@ -820,6 +918,7 @@ export const openapiSpec = {
           id: { type: 'integer' },
           codigo: { type: 'string' },
           productoId: { type: 'integer' },
+          tipoTelaId: { type: 'integer' },
           metrosTelaUsados: { type: 'number' },
           estado: { $ref: '#/components/schemas/EstadoLote' },
           tipo: { $ref: '#/components/schemas/TipoLote' },

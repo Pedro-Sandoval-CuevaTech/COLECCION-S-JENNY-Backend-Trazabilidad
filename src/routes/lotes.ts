@@ -40,7 +40,7 @@ router.get('/:codigo', async (req, res) => {
 });
 
 router.post('/:codigo/avance', async (req, res) => {
-  const data = await avanzarLote(req.params.codigo, req.body);
+  const data = await avanzarLote(req.params.codigo);
   const message = `El lote ${data.codigo} avanzó correctamente al estado ${data.estado}.`;
   res.json({ error: false, message, data });
 });
@@ -60,7 +60,7 @@ router.post('/:codigo/ventas', async (req, res) => {
 });
 
 router.post('/:codigo/finalizar', async (req, res) => {
-  const data = await finalizarLote(req.params.codigo, req.body);
+  const data = await finalizarLote(req.params.codigo);
   const message = `El lote ${data.codigo} fue finalizado exitosamente.`;
   res.json({ error: false, message, data });
 });

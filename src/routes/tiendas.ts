@@ -8,7 +8,7 @@ router.get('/', async (_req, res) => {
   const message =
     data.length === 0
       ? 'No hay tiendas registradas.'
-      : `Hay ${data.length} tienda${data.length > 1 ? 's' : ''} registrada${data.length > 1 ? 's' : ''}:\n${data.map((t) => `- ${t.nombre}`).join('\n')}`;
+      : `Hay ${data.length} tienda${data.length > 1 ? 's' : ''} registrada${data.length > 1 ? 's' : ''}:\n${data.map((t) => `- ${t.nombre}${t.descripcion ? `: ${t.descripcion}` : ''}`).join('\n')}`;
   res.json({ error: false, message, data });
 });
 

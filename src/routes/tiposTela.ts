@@ -8,7 +8,7 @@ router.get('/', async (_req, res) => {
   const message =
     data.length === 0
       ? 'No hay tipos de tela registrados.'
-      : `Hay ${data.length} tipo${data.length > 1 ? 's' : ''} de tela: ${data.map((t) => t.nombre).join(', ')}.`;
+      : `Hay ${data.length} tipo${data.length > 1 ? 's' : ''} de tela:\n${data.map((t) => `- ${t.nombre}`).join('\n')}`;
   res.json({ error: false, message, data });
 });
 

@@ -98,6 +98,7 @@ model LoteDetalle {
   loteTiendas     LoteTienda[]
   transferencias  Transferencia[]
   ventas          Venta[]
+  mermas          Merma[]
 
   @@unique([loteId, talla])
 }
@@ -155,4 +156,13 @@ model Venta {
   fecha         DateTime    @default(now())
   loteDetalle   LoteDetalle @relation(fields: [loteDetalleId], references: [id])
   tienda        Tienda      @relation(fields: [tiendaId], references: [id])
+}
+
+model Merma {
+  id            Int         @id @default(autoincrement())
+  loteDetalleId Int
+  cantidad      Int
+  motivo        String?
+  fecha         DateTime    @default(now())
+  loteDetalle   LoteDetalle @relation(fields: [loteDetalleId], references: [id])
 }

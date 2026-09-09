@@ -370,6 +370,7 @@ export async function obtenerLote(codigo: string) {
           loteTiendas: { include: { tienda: true } },
           transferencias: { include: { tienda: true }, orderBy: { fecha: 'asc' } },
           ventas: { include: { tienda: true }, orderBy: { fecha: 'asc' } },
+          mermas: { orderBy: { fecha: 'asc' } },
         },
       },
     },
@@ -414,6 +415,61 @@ export async function obtenerLote(codigo: string) {
         cantidad: v.cantidad,
         fecha: v.fecha,
       })),
+      mermas: d.mermas.map((m) => ({
+        cantidad: m.cantidad,
+        motivo: m.motivo,
+        fecha: m.fecha,
+      })),
     })),
   };
+}
+
+export async function registrarMerma(codigo: string, input: unknown) {
+  const body = (input ?? {}) as Record<string, unknown>;
+  const talla = requireString(body.talla, 'talla');
+  const cantidad = requirePositiveInt(body.cantidad, 'cantidad');
+  const motivo = typeof body.motivo === 'string' && body.motivo.trim() ? body.motivo.trim() : null;
+
+  return prisma.$transaction(async (tx) => {
+    const lote = await tx.lote.findUnique({ where: { codigo } });
+    if (!lote) {
+      throw new BusinessError(
+        404,
+        `No encontré ningún lote con el código "${codigo}". Revisa que esté bien escrito (formato LOTE-AAAA-NNNN) o usa "Ver lotes" para ver los códigos existentes.`
+      );
+    }
+    if (lote.estado !== EstadoLote.ALMACEN) {
+      throw new BusinessError(
+        400,
+        `El lote ${codigo} está en estado ${lote.estado}; debe estar en ALMACEN para registrar una merma`
+      );
+    }
+
+    const detalle = await tx.loteDetalle.findUnique({
+      where: { loteId_talla: { loteId: lote.id, talla } },
+    });
+    if (!detalle) {
+      throw new BusinessError(
+        404,
+        `El lote ${codigo} no tiene registrada la talla "${talla}". Usa "Detalle de un lote" para ver qué tallas tiene.`
+      );
+    }
+    if (detalle.stockAlmacen < cantidad) {
+      throw new BusinessError(
+        400,
+        `Stock insuficiente en almacén para talla ${talla}: disponibles ${detalle.stockAlmacen}, solicitados ${cantidad}`
+      );
+    }
+
+    await tx.loteDetalle.update({
+      where: { id: detalle.id },
+      data: { stockAlmacen: { decrement: cantidad } },
+    });
+
+    const merma = await tx.merma.create({
+      data: { loteDetalleId: detalle.id, cantidad, motivo },
+    });
+
+    return { ...merma, codigo, talla };
+  });
 }

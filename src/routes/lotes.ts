@@ -5,6 +5,7 @@ import {
   finalizarLote,
   listarLotes,
   obtenerLote,
+  registrarMerma,
   transferirLote,
   venderLote,
 } from '../services/lotes';
@@ -33,7 +34,7 @@ router.get('/', async (req, res) => {
 router.get('/:codigo', async (req, res) => {
   const data = await obtenerLote(req.params.codigo);
   const tallas = data.detalleTallas
-    .map((d: any) => `- ${d.talla}: ${d.stockAlmacen} en almacén`)
+    .map((d: any) => `- ${d.talla}: ${d.cantidadInicial} unidades`)
     .join('\n');
   const message = `Lote ${data.codigo} — ${data.producto} | Estado: ${data.estado} | Tipo: ${data.tipo}\nTallas:\n${tallas}`;
   res.json({ error: false, message, data });
@@ -56,6 +57,14 @@ router.post('/:codigo/ventas', async (req, res) => {
   const data = await venderLote(req.params.codigo, req.body);
   const { talla } = req.body;
   const message = `Venta registrada: ${data.cantidad} unidades de talla ${talla} del lote ${req.params.codigo}.`;
+  res.status(201).json({ error: false, message, data });
+});
+
+router.post('/:codigo/mermas', async (req, res) => {
+  const data = await registrarMerma(req.params.codigo, req.body);
+  const { talla, cantidad, motivo } = data;
+  const detalleMotivo = motivo ? ` Motivo: ${motivo}.` : '';
+  const message = `Merma registrada: ${cantidad} unidades de talla ${talla} del lote ${req.params.codigo}.${detalleMotivo}`;
   res.status(201).json({ error: false, message, data });
 });
 

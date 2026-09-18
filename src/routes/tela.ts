@@ -10,7 +10,7 @@ router.get('/stock', async (req, res) => {
   const message = Array.isArray(data)
     ? data.length === 0
       ? 'No hay tela registrada.'
-      : `Tela disponible:\n${data.map((d) => `- ${d.tipoTela} (${d.metrosDisponibles}m)`).join('\n')}`
+      : `Tela disponible:\n${data.map((d) => `* ${d.tipoTela} (${d.metrosDisponibles}m)`).join('\n')}`
     : `Tela "${data.tipoTela}" disponible: ${data.metrosDisponibles} metros.`;
 
   res.json({ error: false, message, data });

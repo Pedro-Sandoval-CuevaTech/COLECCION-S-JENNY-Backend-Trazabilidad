@@ -24,7 +24,7 @@ router.get('/', async (req, res) => {
     res.json({ error: false, message: 'No se encontraron lotes con esos filtros.', data });
     return;
   }
-  const vista = data.slice(0, 5).map((l: any) => `- ${l.codigo} (${l.producto} — ${l.estado})`).join('\n');
+  const vista = data.slice(0, 5).map((l: any) => `* ${l.codigo} (${l.producto} — ${l.estado})`).join('\n');
   const sufijo = data.length > 5 ? `\n... y ${data.length - 5} más.` : '';
   const message = `Hay ${data.length} lote${data.length > 1 ? 's' : ''}:\n${vista}${sufijo}`;
   res.json({ error: false, message, data });
@@ -33,7 +33,7 @@ router.get('/', async (req, res) => {
 router.get('/:codigo', async (req, res) => {
   const data = await obtenerLote(req.params.codigo);
   const tallas = data.detalleTallas
-    .map((d: any) => `- ${d.talla}: ${d.cantidadInicial} unidades`)
+    .map((d: any) => `* ${d.talla} (${d.cantidadInicial})`)
     .join('\n');
   const message = `Lote ${data.codigo} — ${data.producto} | Estado: ${data.estado} | Tipo: ${data.tipo}\nTallas:\n${tallas}`;
   res.json({ error: false, message, data });

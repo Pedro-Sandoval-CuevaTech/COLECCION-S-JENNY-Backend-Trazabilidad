@@ -76,42 +76,46 @@ export async function reporteMovimientos(input: unknown) {
   const tienda = query.tienda === undefined ? undefined : requireString(query.tienda, 'tienda');
   const producto = query.producto === undefined ? undefined : normalizarNombreProducto(query.producto);
 
-  const where = {
+  const whereTransferencia = {
     fecha: rango,
     ...(tienda && { tienda: { nombre: { equals: tienda, mode: 'insensitive' as const } } }),
     ...(producto && {
       loteDetalle: { lote: { producto: { nombre: { equals: producto, mode: 'insensitive' as const } } } },
     }),
   };
+  const whereVenta = {
+    fecha: rango,
+    ...(tienda && { tienda: { nombre: { equals: tienda, mode: 'insensitive' as const } } }),
+    ...(producto && { producto: { nombre: { equals: producto, mode: 'insensitive' as const } } }),
+  };
 
   const [transferencias, ventas] = await Promise.all([
     prisma.transferencia.findMany({
-      where,
+      where: whereTransferencia,
       include: {
         tienda: { select: { nombre: true } },
         loteDetalle: { include: { lote: { include: { producto: { select: { nombre: true } } } } } },
       },
     }),
     prisma.venta.findMany({
-      where,
+      where: whereVenta,
       include: {
         tienda: { select: { nombre: true } },
-        loteDetalle: { include: { lote: { include: { producto: { select: { nombre: true } } } } } },
+        producto: { select: { nombre: true } },
       },
     }),
   ]);
 
-  type Row = { tienda: { nombre: string }; cantidad: number; loteDetalle: { lote: { producto: { nombre: string } } } };
-  const sumar = (rows: Row[], keyFn: (r: Row) => string) => {
+  const sumar = <T,>(rows: T[], keyFn: (r: T) => string, cantidadFn: (r: T) => number) => {
     const map = new Map<string, number>();
-    for (const r of rows) map.set(keyFn(r), (map.get(keyFn(r)) ?? 0) + r.cantidad);
+    for (const r of rows) map.set(keyFn(r), (map.get(keyFn(r)) ?? 0) + cantidadFn(r));
     return map;
   };
 
-  const trTienda = sumar(transferencias, (r) => r.tienda.nombre);
-  const vtTienda = sumar(ventas, (r) => r.tienda.nombre);
-  const trProducto = sumar(transferencias, (r) => r.loteDetalle.lote.producto.nombre);
-  const vtProducto = sumar(ventas, (r) => r.loteDetalle.lote.producto.nombre);
+  const trTienda = sumar(transferencias, (r) => r.tienda.nombre, (r) => r.cantidad);
+  const vtTienda = sumar(ventas, (r) => r.tienda.nombre, (r) => r.cantidad);
+  const trProducto = sumar(transferencias, (r) => r.loteDetalle.lote.producto.nombre, (r) => r.cantidad);
+  const vtProducto = sumar(ventas, (r) => r.producto.nombre, (r) => r.cantidad);
 
   const porTienda = Array.from(new Set([...trTienda.keys(), ...vtTienda.keys()]))
     .map((nombre) => ({

@@ -7,7 +7,6 @@ import {
   obtenerLote,
   registrarMerma,
   transferirLote,
-  venderLote,
 } from '../services/lotes';
 
 const router = Router();
@@ -50,13 +49,6 @@ router.post('/:codigo/transferencias', async (req, res) => {
   const data = await transferirLote(req.params.codigo, req.body);
   const { talla, tienda, cantidad } = req.body;
   const message = `Se transfirieron ${cantidad} unidades de talla ${talla} del lote ${req.params.codigo} a la tienda "${tienda}".`;
-  res.status(201).json({ error: false, message, data });
-});
-
-router.post('/:codigo/ventas', async (req, res) => {
-  const data = await venderLote(req.params.codigo, req.body);
-  const { talla } = req.body;
-  const message = `Venta registrada: ${data.cantidad} unidades de talla ${talla} del lote ${req.params.codigo}.`;
   res.status(201).json({ error: false, message, data });
 });
 

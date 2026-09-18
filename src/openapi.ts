@@ -15,6 +15,7 @@ export const openapiSpec = {
     { name: 'Productos' },
     { name: 'Tela' },
     { name: 'Lotes' },
+    { name: 'Ventas' },
     { name: 'Reportes' },
     { name: 'AuthorizedPhones' },
   ],
@@ -508,18 +509,17 @@ export const openapiSpec = {
       },
     },
 
-    '/api/lotes/{codigo}/ventas': {
+    '/api/ventas': {
       post: {
-        tags: ['Lotes'],
+        tags: ['Ventas'],
         summary:
-          'Registrar venta en la tienda del vendedor (rol VENDEDOR). Auto-finaliza lotes STOCK con stock total en 0.',
-        parameters: [{ $ref: '#/components/parameters/CodigoLote' }],
+          'Registrar venta en una tienda. Descuenta del stock agregado de la tienda (por producto y talla), sin importar de que lote vino la prenda.',
         requestBody: {
           required: true,
           content: {
             'application/json': {
-              schema: { $ref: '#/components/schemas/VenderLoteInput' },
-              example: { telefono: '555-0005', talla: 'M', cantidad: 1 },
+              schema: { $ref: '#/components/schemas/VenderProductoInput' },
+              example: { tienda: 'Centro', producto: 'Vestido Niña', talla: 'M', cantidad: 1 },
             },
           },
         },
@@ -902,11 +902,12 @@ export const openapiSpec = {
           cantidad: { type: 'integer', minimum: 1 },
         },
       },
-      VenderLoteInput: {
+      VenderProductoInput: {
         type: 'object',
-        required: ['telefono', 'talla', 'cantidad'],
+        required: ['tienda', 'producto', 'talla', 'cantidad'],
         properties: {
-          telefono: { type: 'string' },
+          tienda: { type: 'string' },
+          producto: { type: 'string' },
           talla: { type: 'string' },
           cantidad: { type: 'integer', minimum: 1 },
         },
@@ -1010,7 +1011,8 @@ export const openapiSpec = {
         type: 'object',
         properties: {
           id: { type: 'integer' },
-          loteDetalleId: { type: 'integer' },
+          productoId: { type: 'integer' },
+          talla: { type: 'string' },
           tiendaId: { type: 'integer' },
           cantidad: { type: 'integer' },
           fecha: { type: 'string', format: 'date-time' },

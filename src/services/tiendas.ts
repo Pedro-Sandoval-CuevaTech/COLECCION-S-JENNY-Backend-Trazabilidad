@@ -13,48 +13,44 @@ export async function listarTiendas() {
   return prisma.tienda.findMany({ orderBy: { id: 'asc' } });
 }
 
+// El stock visible por tienda es el agregado por producto+talla (StockTienda): a la
+// tienda no le importa de que lote vino la prenda, solo cuanto tiene de cada cosa.
 export async function obtenerStockDeTiendas() {
   const tiendas = await prisma.tienda.findMany({
     orderBy: { nombre: 'asc' },
     include: {
-      loteTiendas: {
+      stockTiendas: {
         where: { cantidad: { gt: 0 } },
-        include: {
-          loteDetalle: {
-            include: { lote: { include: { producto: true } } },
-          },
-        },
+        include: { producto: true },
       },
     },
   });
 
   return tiendas.map((t) => {
-    const porLote = new Map<
+    const porProducto = new Map<
       string,
-      { codigo: string; producto: string; tallas: { talla: string; cantidad: number }[] }
+      { producto: string; cantidad: number; tallas: { talla: string; cantidad: number }[] }
     >();
     let totalUnidades = 0;
 
-    for (const lt of t.loteTiendas) {
-      const codigo = lt.loteDetalle.lote.codigo;
-      const producto = lt.loteDetalle.lote.producto.nombre;
-      if (!porLote.has(codigo)) {
-        porLote.set(codigo, { codigo, producto, tallas: [] });
+    for (const st of t.stockTiendas) {
+      const producto = st.producto.nombre;
+      if (!porProducto.has(producto)) {
+        porProducto.set(producto, { producto, cantidad: 0, tallas: [] });
       }
-      porLote.get(codigo)!.tallas.push({
-        talla: lt.loteDetalle.talla,
-        cantidad: lt.cantidad,
-      });
-      totalUnidades += lt.cantidad;
+      const g = porProducto.get(producto)!;
+      g.tallas.push({ talla: st.talla, cantidad: st.cantidad });
+      g.cantidad += st.cantidad;
+      totalUnidades += st.cantidad;
     }
 
-    const lotes = Array.from(porLote.values())
+    const productos = Array.from(porProducto.values())
       .map((g) => ({
         ...g,
         tallas: g.tallas.sort((a, b) => a.talla.localeCompare(b.talla)),
       }))
-      .sort((a, b) => a.codigo.localeCompare(b.codigo));
+      .sort((a, b) => a.producto.localeCompare(b.producto));
 
-    return { tienda: t.nombre, totalUnidades, lotes };
+    return { tienda: t.nombre, totalUnidades, productos };
   });
 }

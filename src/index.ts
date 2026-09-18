@@ -3,6 +3,7 @@ import swaggerUi from 'swagger-ui-express';
 import tiendasRouter from './routes/tiendas';
 import telaRouter from './routes/tela';
 import lotesRouter from './routes/lotes';
+import ventasRouter from './routes/ventas';
 import productosRouter from './routes/productos';
 import tiposTelaRouter from './routes/tiposTela';
 import reportesRouter from './routes/reportes';
@@ -25,6 +26,7 @@ app.use('/api/productos', productosRouter);
 app.use('/api/tela', telaRouter);
 app.use('/api/tipos-tela', tiposTelaRouter);
 app.use('/api/lotes', lotesRouter);
+app.use('/api/ventas', ventasRouter);
 app.use('/api/reportes', reportesRouter);
 app.use('/api/authorized-phones', authorizedPhonesRouter);
 

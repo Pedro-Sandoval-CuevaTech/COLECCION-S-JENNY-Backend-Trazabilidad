@@ -49,12 +49,14 @@ enum TipoLote {
 }
 
 model Producto {
-  id          Int      @id @default(autoincrement())
-  nombre      String   @unique
-  descripcion String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  lotes       Lote[]
+  id           Int           @id @default(autoincrement())
+  nombre       String        @unique
+  descripcion  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  lotes        Lote[]
+  stockTiendas StockTienda[]
+  ventas       Venta[]
 }
 
 model Lote {
@@ -97,7 +99,6 @@ model LoteDetalle {
   lote            Lote            @relation(fields: [loteId], references: [id])
   loteTiendas     LoteTienda[]
   transferencias  Transferencia[]
-  ventas          Venta[]
   mermas          Merma[]
 
   @@unique([loteId, talla])
@@ -110,6 +111,7 @@ model Tienda {
   loteTiendas    LoteTienda[]
   transferencias Transferencia[]
   ventas         Venta[]
+  stockTiendas   StockTienda[]
   usuarios       Usuario[]
 }
 
@@ -121,6 +123,21 @@ model LoteTienda {
   tienda        Tienda      @relation(fields: [tiendaId], references: [id])
 
   @@id([loteDetalleId, tiendaId])
+}
+
+// Stock agregado y disponible para venta en cada tienda, por producto y talla.
+// Se alimenta de las transferencias (sin importar de que lote vino la prenda) y
+// es lo unico que las ventas consultan y descuentan — la tienda no necesita saber el lote.
+model StockTienda {
+  id         Int      @id @default(autoincrement())
+  productoId Int
+  talla      String
+  tiendaId   Int
+  cantidad   Int      @default(0)
+  producto   Producto @relation(fields: [productoId], references: [id])
+  tienda     Tienda   @relation(fields: [tiendaId], references: [id])
+
+  @@unique([productoId, talla, tiendaId])
 }
 
 enum Rol {
@@ -148,14 +165,17 @@ model Transferencia {
   tienda        Tienda      @relation(fields: [tiendaId], references: [id])
 }
 
+// Las ventas descuentan del stock agregado de la tienda (StockTienda), no de un
+// lote especifico: a la tienda no le importa de que lote vino la prenda vendida.
 model Venta {
-  id            Int         @id @default(autoincrement())
-  loteDetalleId Int
-  tiendaId      Int
-  cantidad      Int
-  fecha         DateTime    @default(now())
-  loteDetalle   LoteDetalle @relation(fields: [loteDetalleId], references: [id])
-  tienda        Tienda      @relation(fields: [tiendaId], references: [id])
+  id         Int      @id @default(autoincrement())
+  productoId Int
+  talla      String
+  tiendaId   Int
+  cantidad   Int
+  fecha      DateTime @default(now())
+  producto   Producto @relation(fields: [productoId], references: [id])
+  tienda     Tienda   @relation(fields: [tiendaId], references: [id])
 }
 
 model Merma {

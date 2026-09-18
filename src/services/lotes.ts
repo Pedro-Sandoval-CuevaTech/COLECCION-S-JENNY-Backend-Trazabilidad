@@ -32,6 +32,25 @@ function parseEstado(v: unknown): EstadoLote {
   throw new BusinessError(400, `estado inválido; debe ser uno de ${values.join(', ')}`);
 }
 
+// Si un lote en ALMACEN se queda sin stock en almacen (todas sus tallas en 0), ya no
+// tiene nada pendiente por transferir/perder desde ahi y se da por finalizado. No mira
+// el stock en tiendas (StockTienda) porque eso ya no es responsabilidad del lote.
+async function finalizarSiAlmacenVacio(tx: Prisma.TransactionClient, loteId: number) {
+  const lote = await tx.lote.findUniqueOrThrow({ where: { id: loteId } });
+  if (lote.estado !== EstadoLote.ALMACEN) return;
+
+  const suma = await tx.loteDetalle.aggregate({
+    where: { loteId },
+    _sum: { stockAlmacen: true },
+  });
+  if ((suma._sum.stockAlmacen ?? 0) === 0) {
+    await tx.lote.update({
+      where: { id: loteId },
+      data: { estado: EstadoLote.FINALIZADO, fechaFinalizacion: new Date() },
+    });
+  }
+}
+
 async function generarCodigo(tx: Prisma.TransactionClient): Promise<string> {
   const year = new Date().getFullYear();
   const prefix = `LOTE-${year}-`;
@@ -211,6 +230,7 @@ export async function transferirLote(codigo: string, input: unknown) {
       where: { id: detalle.id },
       data: { stockAlmacen: { decrement: cantidad } },
     });
+    await finalizarSiAlmacenVacio(tx, lote.id);
 
     await tx.loteTienda.upsert({
       where: { loteDetalleId_tiendaId: { loteDetalleId: detalle.id, tiendaId: tienda.id } },
@@ -218,90 +238,18 @@ export async function transferirLote(codigo: string, input: unknown) {
       create: { loteDetalleId: detalle.id, tiendaId: tienda.id, cantidad },
     });
 
+    // Stock agregado disponible para venta en la tienda: no distingue de que lote vino.
+    await tx.stockTienda.upsert({
+      where: {
+        productoId_talla_tiendaId: { productoId: lote.productoId, talla, tiendaId: tienda.id },
+      },
+      update: { cantidad: { increment: cantidad } },
+      create: { productoId: lote.productoId, talla, tiendaId: tienda.id, cantidad },
+    });
+
     return tx.transferencia.create({
       data: { loteDetalleId: detalle.id, tiendaId: tienda.id, cantidad },
     });
-  });
-}
-
-export async function venderLote(codigo: string, input: unknown) {
-  const body = (input ?? {}) as Record<string, unknown>;
-  const nombreTienda = requireString(body.tienda, 'tienda');
-  const talla = requireString(body.talla, 'talla');
-  const cantidad = requirePositiveInt(body.cantidad, 'cantidad');
-
-  return prisma.$transaction(async (tx) => {
-    const tienda = await buscarTiendaPorNombre(nombreTienda, tx);
-    if (!tienda) {
-      throw new BusinessError(
-        404,
-        `La tienda "${nombreTienda}" no está registrada. Usa "Ver tiendas" para ver las tiendas disponibles.`
-      );
-    }
-
-    const lote = await tx.lote.findUnique({ where: { codigo } });
-    if (!lote) {
-      throw new BusinessError(
-        404,
-        `No encontré ningún lote con el código "${codigo}". Revisa que esté bien escrito (formato LOTE-AAAA-NNNN) o usa "Ver lotes" para ver los códigos existentes.`
-      );
-    }
-
-    const detalle = await tx.loteDetalle.findUnique({
-      where: { loteId_talla: { loteId: lote.id, talla } },
-    });
-    if (!detalle) {
-      throw new BusinessError(
-        404,
-        `El lote ${codigo} no tiene registrada la talla "${talla}". Usa "Detalle de un lote" para ver qué tallas tiene.`
-      );
-    }
-
-    const stockTienda = await tx.loteTienda.findUnique({
-      where: {
-        loteDetalleId_tiendaId: { loteDetalleId: detalle.id, tiendaId: tienda.id },
-      },
-    });
-    if (!stockTienda || stockTienda.cantidad < cantidad) {
-      throw new BusinessError(
-        400,
-        `Stock insuficiente del lote ${codigo} talla ${talla} en la tienda: disponibles ${stockTienda?.cantidad ?? 0}, solicitados ${cantidad}`
-      );
-    }
-
-    await tx.loteTienda.update({
-      where: {
-        loteDetalleId_tiendaId: { loteDetalleId: detalle.id, tiendaId: tienda.id },
-      },
-      data: { cantidad: { decrement: cantidad } },
-    });
-
-    const venta = await tx.venta.create({
-      data: { loteDetalleId: detalle.id, tiendaId: tienda.id, cantidad },
-    });
-
-    // Auto-finalización solo para STOCK cuando el lote (todas sus tallas) queda en 0
-    if (lote.tipo === TipoLote.STOCK && lote.estado !== EstadoLote.FINALIZADO) {
-      const [sumAlmacen, sumTiendas] = await Promise.all([
-        tx.loteDetalle.aggregate({
-          where: { loteId: lote.id },
-          _sum: { stockAlmacen: true },
-        }),
-        tx.loteTienda.aggregate({
-          where: { loteDetalle: { loteId: lote.id } },
-          _sum: { cantidad: true },
-        }),
-      ]);
-      const total = (sumAlmacen._sum.stockAlmacen ?? 0) + (sumTiendas._sum.cantidad ?? 0);
-      if (total === 0) {
-        await tx.lote.update({
-          where: { id: lote.id },
-          data: { estado: EstadoLote.FINALIZADO, fechaFinalizacion: new Date() },
-        });
-      }
-    }
-
-    return venta;
   });
 }
 
@@ -369,7 +317,6 @@ export async function obtenerLote(codigo: string) {
         include: {
           loteTiendas: { include: { tienda: true } },
           transferencias: { include: { tienda: true }, orderBy: { fecha: 'asc' } },
-          ventas: { include: { tienda: true }, orderBy: { fecha: 'asc' } },
           mermas: { orderBy: { fecha: 'asc' } },
         },
       },
@@ -401,7 +348,10 @@ export async function obtenerLote(codigo: string) {
       talla: d.talla,
       cantidadInicial: d.cantidadInicial,
       stockAlmacen: d.stockAlmacen,
-      stocksEnTiendas: d.loteTiendas.map((lt) => ({
+      // Acumulado historico transferido de este lote a cada tienda; las ventas ya no se
+      // descuentan de aqui (se descuentan del stock agregado por producto+talla en StockTienda),
+      // asi que este numero no baja al vender.
+      transferidoATiendas: d.loteTiendas.map((lt) => ({
         tienda: lt.tienda.nombre,
         cantidad: lt.cantidad,
       })),
@@ -409,11 +359,6 @@ export async function obtenerLote(codigo: string) {
         tienda: t.tienda.nombre,
         cantidad: t.cantidad,
         fecha: t.fecha,
-      })),
-      ventas: d.ventas.map((v) => ({
-        tienda: v.tienda.nombre,
-        cantidad: v.cantidad,
-        fecha: v.fecha,
       })),
       mermas: d.mermas.map((m) => ({
         cantidad: m.cantidad,
@@ -465,6 +410,7 @@ export async function registrarMerma(codigo: string, input: unknown) {
       where: { id: detalle.id },
       data: { stockAlmacen: { decrement: cantidad } },
     });
+    await finalizarSiAlmacenVacio(tx, lote.id);
 
     const merma = await tx.merma.create({
       data: { loteDetalleId: detalle.id, cantidad, motivo },

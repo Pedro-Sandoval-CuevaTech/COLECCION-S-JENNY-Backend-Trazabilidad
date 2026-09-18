@@ -8,7 +8,7 @@ router.get('/', async (_req, res) => {
   const message =
     data.length === 0
       ? 'No hay tiendas registradas.'
-      : `Hay ${data.length} tienda${data.length > 1 ? 's' : ''} registrada${data.length > 1 ? 's' : ''}:\n${data.map((t) => `* ${t.nombre}${t.descripcion ? ` (${t.descripcion})` : ''}`).join('\n')}`;
+      : `Hay ${data.length} tienda${data.length > 1 ? 's' : ''} registrada${data.length > 1 ? 's' : ''}:\n${data.map((t) => `• ${t.nombre}${t.descripcion ? ` (${t.descripcion})` : ''}`).join('\n')}`;
   res.json({ error: false, message, data });
 });
 
@@ -17,7 +17,12 @@ router.get('/stock', async (_req, res) => {
   const total = data.reduce((s, t) => s + t.totalUnidades, 0);
   const resumen = data
     .map((t) => {
-      const productos = t.productos.map((p) => `* ${p.producto} (${p.cantidad})`).join('\n');
+      const productos = t.productos
+        .map((p) => {
+          const detalleTallas = p.tallas.map((ta) => `${ta.talla} = ${ta.cantidad}`).join(', ');
+          return `• ${p.producto} (${detalleTallas})`;
+        })
+        .join('\n');
       return `${t.tienda} (${t.totalUnidades} uds.):\n${productos || '(sin stock)'}`;
     })
     .join('\n\n');
